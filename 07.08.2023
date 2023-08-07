@@ -1,0 +1,233 @@
+//@version=5
+strategy('phantom with gaps', overlay=true,max_boxes_count=500,process_orders_on_close = true )
+
+sps = strategy.position_size
+/// Two Sessions and color //
+res = 'D'  
+session_ = input.session(title='Session 1', defval='0900-1000:1234567',inline = "1")
+session_2 = input.session(title='Session 2', defval='1000-1100:1234567',inline = "2")
+session_3 = input.session(title='Session 3', defval='1100-1600:1234567',inline = "3")
+sess1_col = input.color(color.new(color.blue,90),"",inline = "1")
+sess2_col = input.color(color.new(color.red,90),"",inline = "2")
+sess3_col = input.color(color.new(color.aqua,90),"",inline = "3")
+
+// new bar of session//
+is_newbar(sess) =>
+    t = time(res, sess,"GMT-4")
+    na(t[1]) and not na(t) or t[1] < t
+
+is_session(sess) =>
+    not na(time(timeframe.period, sess,"GMT-4"))
+
+session_Newbar = is_newbar(session_)
+session_Newbar2 = is_newbar(session_2)
+session_Newbar3 = is_newbar(session_3)
+
+session_Session = is_session(session_)
+session_Session2 = is_session(session_2)
+session_Session3 = is_session(session_3)
+
+// --- Session1 Low and High --- //
+float session_Low = na
+session_Low := if session_Session
+    if session_Newbar
+        low
+    else
+        math.min(session_Low[1], low)
+else
+    session_Low
+
+float session_High = na
+session_High := if session_Session
+    if session_Newbar
+        high
+    else
+        math.max(session_High[1], high)
+else
+    session_High
+
+// --- Session2 Low and High --- //
+float session_Low2 = na
+session_Low2 := if session_Session2
+    if session_Newbar2
+        low
+    else
+        math.min(session_Low2[1], low)
+else
+    session_Low2
+
+float session_High2 = na
+session_High2 := if session_Session2
+    if session_Newbar2
+        high
+    else
+        math.max(session_High2[1], high)
+else
+    session_High2
+
+// --- Session Color --- //
+bgcolor(session_Session ? sess1_col : na )
+bgcolor(session_Session2 ? sess2_col : na )
+bgcolor(session_Session3 ? sess3_col : na )
+
+//
+// --- Last candle of both sessions --- //
+lastbar = session_Session[1] and not session_Session
+lastbar2 = session_Session2[1] and not session_Session2
+
+// --- Session1 highest and lowest --- //
+var float high_ = 0
+var float low_ = 0
+high_ := ta.valuewhen(lastbar,session_High[1],0)
+low_  := ta.valuewhen(lastbar,session_Low[1],0)
+plot(session_Session2?high_:na, title='Session1 High', color=color.new(#00ffaa, 0), linewidth=1, style=plot.style_circles)
+plot(session_Session2?low_:na , title='Session1 Low', color=color.new(#00ffaa, 0), linewidth=1, style=plot.style_circles)
+
+// --- Session2 highest and lowest --- //
+var float high_2 = 0
+var float low_2 = 0
+high_2 := ta.valuewhen(lastbar2,session_High2[1],0)
+low_2  := ta.valuewhen(lastbar2,session_Low2[1],0)
+plot(session_Session3?high_2:na, title='Session2 High', color=color.new(color.aqua, 0), linewidth=1, style=plot.style_circles)
+plot(session_Session3?low_2:na , title='Session2 Low', color=color.new(color.aqua, 0), linewidth=1, style=plot.style_circles)
+
+
+// --- Swing --- //
+
+leftBars = (input.int(title="Swing", group = "swing", defval=3)-1)/2
+rightBars = leftBars
+
+var running_ph1 = 0.00
+var running_pl1 = 0.00
+
+ph1 = ta.pivothigh(leftBars, rightBars)
+pl1 = ta.pivotlow( leftBars, rightBars)
+
+if (ph1) 
+    running_ph1 := ph1
+
+if (pl1) 
+    running_pl1 := pl1
+// plot(running_ph1, style=plot.style_line, linewidth=1, color= color.red, offset=0)
+// plot(running_pl1, style=plot.style_line, linewidth=1, color= color.aqua, offset=0)
+
+
+var float nf_low = 0
+if lastbar or lastbar2
+    nf_low := 99999999
+if low<nf_low[1]
+    nf_low := low
+// plot(nf_low)
+
+var float nf_high = 0
+if lastbar or lastbar2
+    nf_high := 0
+if high>nf_high[1]
+    nf_high := high
+// plot(nf_high)
+
+
+
+var float f_low1 = 0
+if lastbar or lastbar2
+    f_low1 := 0
+if running_pl1>f_low1[1]
+    f_low1 := running_pl1
+
+var float f_high1 = 0
+if lastbar or lastbar2
+    f_high1 := 999999999
+if running_ph1<f_high1[1]
+    f_high1 := running_ph1
+
+f_high = ta.valuewhen(nf_low<nf_low[1],f_high1,0)
+f_low = ta.valuewhen(nf_high>nf_high[1],f_low1,0)
+// plot(f_high, style=plot.style_line, linewidth=1, color= color.red, offset=0)
+// plot(f_low, style=plot.style_line, linewidth=1, color= color.aqua, offset=0)
+
+// --- Swing High and Low : before the price exceeded the highest point. --- //
+
+var float fhigh_= 0
+if lastbar
+    fhigh_ := high_
+if lastbar2
+    fhigh_ :=high_2
+var float flow_= 0
+if lastbar
+    flow_ := low_
+if lastbar2
+    flow_ :=low_2
+
+var int trade = 0
+if (high>=fhigh_)
+    trade :=  -1
+if (low<=flow_)
+    trade := 1
+if lastbar or  lastbar2
+    trade := 0
+
+// -- Strategy Entry and Exit -- //
+// -- Take profit -- //
+rr = input.float(2,"Take Profit(R:R)")
+
+var int tradeno = 0
+if (sps>0 and sps[1]<=0 ) or (sps<0 and sps[1]>=0)
+    tradeno :=tradeno+1
+if lastbar or lastbar2
+    tradeno := 0 
+
+f_b1 = trade==1  and (low>high[2] ) and session_Session2 and sps<=0 and tradeno==0 // Session 1 Long Entry
+f_b2 = trade==1  and (low>high[2] and high>f_high and low<f_high) and session_Session3 and sps<=0 and tradeno==0 // Session 2 Long Entry
+currentBalance = strategy.initial_capital + strategy.netprofit
+balanceInContracts = math.abs(currentBalance*5/close)
+
+var float long_ep = 0
+var float long_sl = 0
+var float long_tp = 0
+if f_b1
+    strategy.cancel("Short")
+    long_ep := low
+    strategy.entry("Long",strategy.long,limit  =long_ep ,qty = balanceInContracts )
+    long_sl := low[2]
+    long_tp := long_ep+rr*(long_ep-long_sl)
+
+
+f_s1 = trade==-1 and (high<low[2] ) and session_Session2 and sps>=0  and tradeno==0// Session 1 Short Entry
+f_s2 = trade==-1 and (high<low[2] and  high>f_low and low<f_low) and session_Session3 and sps>=0  and tradeno==0// Session 2 Short Entry
+var float short_ep = 0
+var float short_sl = 0
+var float short_tp = 0
+if f_s1 
+    strategy.cancel("Long")
+    short_ep := high
+    strategy.entry("Short",strategy.short,limit = short_ep,qty = balanceInContracts)
+    short_sl := running_ph1
+    short_tp := short_ep-rr*(short_sl-short_ep)
+
+
+// -- Exit based on TP and SL -- //
+strategy.exit("Ex Long","Long",stop=long_sl,limit = long_tp)
+strategy.exit("Ex Short","Short",stop=short_sl,limit = short_tp)
+is11AM = (hour(time) == 11)
+noOpenTrades = strategy.position_size == 0
+is16PM = (hour(time) == 16)
+
+if is11AM and noOpenTrades
+    strategy.cancel_all()
+
+if is16PM
+    strategy.close_all()
+// -- Plotting TP and SL -- //
+
+plot(sps<0 ? short_tp : na , title='Short TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+plot(sps<0 ? short_sl  : na , title='Short SL', color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr )
+
+plot(sps>0 ? long_tp : na , title='Long TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+plot(sps>0 ? long_sl  : na , title='Long SL', color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr )
+
+
+
+
+
+
+
