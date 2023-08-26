@@ -1,0 +1,104 @@
+//@version = 5
+strategy("Michay Str1",overlay = true , process_orders_on_close = true )
+
+trade = input.string("Long","Trade:",options = ["Long","Short","Both"])
+
+currentBalance = strategy.initial_capital + strategy.netprofit
+balanceInContracts = currentBalance/close
+risk_percentage = 0.02
+dollar_risk = currentBalance * risk_percentage
+
+
+ema30 = ta.ema(close, 30)
+
+plot3 = request.security(syminfo.tickerid, 'W', ema30)
+plot(plot3,linewidth=2,color=color.red)
+
+
+session = input.session("0000-1600",title="Trading Session",inline = "i")
+tz = input.string("GMT+1","",inline = "i")
+t= time(timeframe.period,session,tz)
+bgcolor(not na(t) ? color.new(color.purple,90) : na,title="Trading Session"  )
+
+ensession1 = input.session("0100-0200",title="Entry Time1")
+ent1= time(timeframe.period,ensession1,tz)
+ensession2 = input.session("0500-0600",title="Entry Time2")
+ent2= time(timeframe.period,ensession2,tz)
+ensession3 = input.session("1300-1400",title="Entry Time3")
+ent3= time(timeframe.period,ensession3,tz)
+enter_time = (not na(ent1)) 
+bgcolor((enter_time) ? color.new(color.green,90) : na ,title="Entry Time" )
+
+sps = strategy.position_size
+// Entry time:
+// 1-2am
+// 5-6am
+// 1-2pm
+
+// 1. wait for the first Gap to form
+// 1.a Gap = 3 candle formation. First candle high is lower than 3rd candle low
+// 2. Set a limit order on the gap with a stop at first candle of the formation
+// 3. tp 1R
+//
+// At 4:00 pm set close trades and cancel orders
+// If places limit but didn’t enter at 11:00 cancel order
+
+candle_3l = low>high[2] and sps<=0 and trade!="Short" and ( not na(t)) and enter_time  and not( (ta.change(strategy.closedtrades)))
+candle_3s = high<low[2] and sps>=0 and trade!="Long"and ( not na(t)) and enter_time and not( (ta.change(strategy.closedtrades)))
+
+
+rr = input.float(2,"R:R")
+
+var float long_ep = 0
+var float long_tp = 0
+var float long_sl = 0
+if candle_3l  
+    long_ep := low
+    long_sl := low[2]
+    long_tp := long_ep+rr*(long_ep-long_sl)
+if sps>0 or (not(t)) or (ta.change(strategy.closedtrades))
+    long_ep := 0
+
+if close>long_ep  and trade!="Short" and close>plot3
+    long_risk_per_share = math.abs(long_ep - long_sl)
+    long_balanceInContracts = long_risk_per_share > 0 ? dollar_risk / long_risk_per_share : 0
+    strategy.entry("Long",strategy.long,limit = long_ep,qty = long_balanceInContracts)
+strategy.exit("Ex Long","Long",stop = long_sl,limit = long_tp )
+plot(sps>0 ? long_tp : na , title='Long TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+plot(sps>0 ? long_sl  : na , title='Long SL', color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr )
+
+
+var float short_ep = 0
+var float short_tp = 0
+var float short_sl = 0
+if candle_3s  
+    short_ep := high
+    short_sl := high[2]
+    short_tp := short_ep-2*(short_sl-short_ep)
+if sps[1]<0 or (not(t)) or (ta.change(strategy.closedtrades))
+    short_ep := 999999999
+
+if close<short_ep  and trade!="Long" and close<plot3
+    short_risk_per_share = math.abs(short_sl - short_ep)
+    short_balanceInContracts = short_risk_per_share > 0 ? dollar_risk / short_risk_per_share : 0
+
+    strategy.entry("Short",strategy.short,limit = short_ep,qty = short_balanceInContracts)
+strategy.exit("Ex Short","Short",stop = short_sl,limit = short_tp )
+plot(sps<0 ? short_tp : na , title='Short TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+plot(sps<0 ? short_sl  : na , title='Short SL', color=color.new(color.maroon, 0), linewidth=2, style=plot.style_linebr )
+
+
+
+if(na(t))  
+    strategy.cancel_all()
+    strategy.close_all(comment = "Session Close") 
+
+if na(enter_time)
+    strategy.cancel("Long")
+    strategy.cancel("Short")
+
+
+
+plotshape(candle_3l, title='L', text='L', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0))
+plotshape(candle_3s , title='S', text='S', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0))
+
